@@ -4,7 +4,6 @@ require_once 'includes/functions.php';
 
 $acao = $_GET['acao'] ?? $_POST['acao'] ?? '';
 
-// Endpoints AJAX / Requisições
 if ($acao) {
     header('Content-Type: application/json; charset=utf-8');
     
@@ -56,7 +55,7 @@ if ($acao) {
 
         case 'salvar_atendimento':
             try {
-                $id = salvarAtendimento($_POST);
+                salvarAtendimento($_POST);
                 echo json_encode(['success' => true, 'message' => 'Atendimento salvo com sucesso!']);
             } catch (Exception $e) {
                 echo json_encode(['success' => false, 'message' => $e->getMessage()]);
@@ -140,17 +139,13 @@ if ($acao) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SIGACTPAR - Sistema de Gestão do Conselho Tutelar</title>
-    <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- SheetJS para importação de Excel -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <!-- Estilos CSS -->
     <link rel="stylesheet" href="css/style.css">
     <script>
-        // Lista oficial de assuntos permitidos pelo Conselho Tutelar e CDCA
         const listaAssuntosPermitidos = [
             "NEGLIGÊNCIA",
-            "MAus TRATOS",
+            "MAUS TRATOS",
             "ABUSO SEXUAL",
             "EXPLORAÇÃO SEXUAL",
             "EVASÃO ESCOLAR",
@@ -182,7 +177,6 @@ if ($acao) {
         </div>
     </div>
 
-    <!-- Abas de Navegação -->
     <div class="nav-tabs">
         <button type="button" class="tab-btn active" onclick="mudarAba(event, 'tabProcessos')">
             <i class="fa-solid fa-folder-open"></i> GESTÃO DE PROCESSOS E PASTAS
@@ -194,8 +188,6 @@ if ($acao) {
 
     <!-- ABA 1: PROCESSOS -->
     <div id="tabProcessos" class="tab-content active">
-        
-        <!-- Bloco de Edição / Cadastro -->
         <div class="container">
             <div id="editIndicator" class="edit-indicator" style="display: none;">
                 <span><i class="fa-solid fa-pen-to-square"></i> EDITANDO REGISTRO DA PASTA: <strong id="editPastaDisplay"></strong></span>
@@ -210,7 +202,7 @@ if ($acao) {
                     <div class="form-group small-field">
                         <label for="pasta"><i class="fa-solid fa-folder"></i> NÚMERO DA PASTA *</label>
                         <div style="display: flex; gap: 4px;">
-                            <input type="text" id="pasta" required placeholder="Ex: A-1" oninput="onPastaInput()">
+                            <input type="text" id="pasta" required placeholder="Ex: A-1">
                             <button type="button" class="btn-add" onclick="gerarPastaAutomaticamente()" title="Gerar Pasta Automática"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
                         </div>
                         <span class="pasta-hint"><button type="button" class="btn-gerar-pasta" onclick="gerarPastaAutomaticamente()">Gerar sequencial</button></span>
@@ -230,7 +222,6 @@ if ($acao) {
                     </div>
                 </div>
 
-                <!-- Crianças e Responsáveis Dinâmicos -->
                 <div class="form-grid form-row-spacing">
                     <div class="form-group half-width">
                         <label><i class="fa-solid fa-child"></i> CRIANÇA(S) / ADOLESCENTE(S) (<span id="childCounter">0</span>)</label>
@@ -315,7 +306,6 @@ if ($acao) {
             </form>
         </div>
 
-        <!-- Botões de Controle e Dashboard -->
         <div style="display: flex; gap: 8px; margin-bottom: 10px;">
             <button type="button" class="btn-toggle-dash" onclick="toggleDashboard()">
                 <i id="iconToggleDash" class="fa-solid fa-eye-slash"></i> <span id="textToggleDash">ESCONDER DASHBOARD</span>
@@ -325,7 +315,6 @@ if ($acao) {
             </button>
         </div>
 
-        <!-- Seção de Importação Planilha / Cole (Oculta por padrão) -->
         <div id="uploadSectionWrapper" class="upload-section" style="display: none;">
             <h3 style="font-size: 13px; color: var(--primary-color); margin-bottom: 8px;"><i class="fa-solid fa-file-excel"></i> IMPORTAR DADOS EM LOTE (EXCEL / CTRL+V)</h3>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
@@ -334,7 +323,7 @@ if ($acao) {
                     <input type="file" id="excelFile" accept=".xlsx, .xls" onchange="processarPlanilha(event)" style="font-size: 12px; padding: 4px;">
                 </div>
                 <div>
-                    <label style="margin-bottom: 4px;">Ou cole linhas copiadas do Excel (Tabulações):</label>
+                    <label style="margin-bottom: 4px;">Ou cole linhas copiadas do Excel:</label>
                     <div style="display: flex; gap: 6px;">
                         <textarea id="pasteInput" placeholder="Cole aqui..." style="height: 36px; resize: none;"></textarea>
                         <button type="button" class="btn-add" onclick="clicarColar()" style="background: var(--primary-color); color: white;">PROCESSAR</button>
@@ -343,7 +332,6 @@ if ($acao) {
             </div>
         </div>
 
-        <!-- Dashboard Estatísticas (Ocultável) -->
         <div id="dashboardContainerWrap" class="dashboard-container-wrap">
             <div class="container">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -375,12 +363,11 @@ if ($acao) {
             </div>
         </div>
 
-        <!-- Tabela de Listagem de Processos -->
         <div class="container">
             <div class="table-header-flex">
                 <h3><i class="fa-solid fa-table-list"></i> REGISTROS DE PROCESSOS E PASTAS</h3>
                 <div style="display: flex; gap: 6px; align-items: center;">
-                    <input type="text" id="inputPesquisaProcessos" placeholder="Pesquisar..." oninput="pesparProcessosInput()" style="padding: 4px 8px; font-size: 12px; width: 180px;">
+                    <input type="text" id="inputPesquisaProcessos" placeholder="Pesquisar..." style="padding: 4px 8px; font-size: 12px; width: 180px;">
                     <button type="button" class="btn-add" onclick="pesquisarProcessos()"><i class="fa-solid fa-search"></i></button>
                     <span id="contadorRegistros" class="dash-badge" style="font-size: 11px; padding: 4px 8px;">TOTAL: 0</span>
                 </div>
@@ -403,9 +390,7 @@ if ($acao) {
                             <th style="text-align: center;">AÇÕES</th>
                         </tr>
                     </thead>
-                    <tbody id="tbodyRegistros">
-                        <!-- Preenchido via JavaScript -->
-                    </tbody>
+                    <tbody id="tbodyRegistros"></tbody>
                 </table>
             </div>
         </div>
@@ -484,7 +469,6 @@ if ($acao) {
             </form>
         </div>
 
-        <!-- Estatísticas Rápidas de Atendimento -->
         <div class="container">
             <div style="display: flex; gap: 15px;">
                 <div class="dash-box" style="flex: 1; text-align: center;">
@@ -498,7 +482,6 @@ if ($acao) {
             </div>
         </div>
 
-        <!-- Tabela de Atendimentos -->
         <div class="container">
             <div class="table-header-flex">
                 <h3><i class="fa-solid fa-clipboard-user"></i> HISTÓRICO DE ATENDIMENTOS</h3>
@@ -517,15 +500,13 @@ if ($acao) {
                             <th style="text-align: center;">AÇÕES</th>
                         </tr>
                     </thead>
-                    <tbody id="tbodyAtendimentos">
-                        <!-- Preenchido via JavaScript -->
-                    </tbody>
+                    <tbody id="tbodyAtendimentos"></tbody>
                 </table>
             </div>
         </div>
     </div>
 
-    <!-- MODAL DE HISTÓRICO DE SERVIÇOS DA PASTA -->
+    <!-- MODAL DE HISTÓRICO -->
     <div id="modalHistorico" class="modal-overlay" style="display: none;">
         <div class="modal-content">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 2px solid var(--bg-color); padding-bottom: 8px;">
@@ -566,30 +547,19 @@ if ($acao) {
                             <th style="text-align: center;">AÇÃO</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <!-- Dinâmico -->
-                    </tbody>
+                    <tbody></tbody>
                 </table>
             </div>
         </div>
     </div>
 
-    <!-- Script Principal -->
     <script src="js/script.js"></script>
     <script>
         function mudarAba(evt, tabId) {
-            const contents = document.querySelectorAll(".tab-content");
-            contents.forEach(c => c.classList.remove("active"));
-
-            const buttons = document.querySelectorAll(".tab-btn");
-            buttons.forEach(b => b.classList.remove("active"));
-
+            document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+            document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
             document.getElementById(tabId).classList.add("active");
             evt.currentTarget.classList.add("active");
-        }
-
-        function pesparProcessosInput() {
-            // Atalho dinâmico opcional de busca
         }
     </script>
 </body>
