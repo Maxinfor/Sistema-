@@ -1,0 +1,801 @@
+document.addEventListener("DOMContentLoaded", function () {
+    atualizarDataHoraHeader();
+    carregarProcessos();
+    carregarAtendimentos();
+    atualizarDashboardEstatisticas();
+    configurarAutocompleteAssuntos();
+    configurarAutocompleteAtendAssuntos();
+    
+    const hoje = new Date().toLocaleDateString('pt-BR');
+    if(document.getElementById("spanDataHoje")) document.getElementById("spanDataHoje").textContent = hoje;
+    if(document.getElementById("atendDataHora")) document.getElementById("atendDataHora").value = new Date().toLocaleString('pt-BR');
+    
+    if(document.getElementById("criancasContainer") && document.getElementById("criancasContainer").children.length === 0) {
+        adicionarCampoCrianca();
+    }
+});
+
+function atualizarDataHoraHeader() {
+    const el = document.getElementById("headerData");
+    if (el) {
+        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+        el.textContent = new Date().toLocaleDateString('pt-BR', options).toUpperCase();
+    }
+}
+
+let processosCache = [];
+
+function carregarProcessos(filtro = '') {
+    fetch(`index.php?acao=listar_processos&filtro=${encodeURIComponent(filtro)}`)
+        .then(res => res.json())
+        .then(data => {
+            processosCache = data;
+            renderizarTabelaProcessos(data);
+        })
+        .catch(err => console.error("Erro ao carregar processos:", err));
+}
+
+function renderizarTabelaProcessos(dados) {
+    const tbody = document.getElementById("tbodyRegistros");
+    const contador = document.getElementById("contadorRegistros");
+    if (!tbody) return;
+
+    contador.textContent = `TOTAL: ${dados.length}`;
+
+    if (dados.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="12" style="text-align: center; color: var(--text-light); padding: 20px;">NENHUM REGISTRO ENCONTRADO.</td></tr>`;
+        return;
+    }
+
+    let html = "";
+    dados.forEach((item) => {
+        let criancasStr = "";
+        try {
+            const arr = JSON.parse(item.criancas_dados || '[]');
+            criancasStr = arr.map(c => `${c.nome} (${c.nasc || 'N/I'})`).join('<br>');
+        } catch(e) {
+            criancasStr = item.criancas || '';
+        }
+
+        let responsaveisStr = "";
+        try {
+            const arr = JSON.parse(item.responsaveis_dados || '[]');
+            responsaveisStr = arr.join('<br>');
+        } catch(e) {
+            responsaveisStr = item.responsavel || '';
+        }
+
+        html += `
+            <tr>
+                <td><strong>${item.pasta || ''}</strong></td>
+                <td>${item.num_processo || ''}</td>
+                <td>${criancasStr}</td>
+                <td>-</td>
+                <td>${responsaveisStr}</td>
+                <td>${item.endereco || ''}</td>
+                <td>${item.cidade || ''}</td>
+                <td>${item.assunto || ''}</td>
+                <td>${item.conselheiro || ''}</td>
+                <td>${item.processo_sei || ''}</td>
+                <td>${item.observacao || ''}</td>
+                <td style="text-align: center; white-space: nowrap;">
+                    <button type="button" class="btn-add" style="display:inline-flex; padding: 4px 8px; background: #e0f2fe; color: #0284c7;" onclick="abrirHistorico(${item.id}, '${item.pasta}')" title="Histórico"><i class="fa-solid fa-clock-rotate-left"></i></button>
+                    <button type="button" class="btn-add" style="display:inline-flex; padding: 4px 8px; background: #fef3c7; color: #d97706; margin-left: 4px;" onclick="editarProcesso(${item.id})" title="Editar"><i class="fa-solid fa-pen"></i></button>
+                    <button type="button" class="btn-remove" style="display:inline-flex; width: 24px; height: 24px; margin-left: 4px;" onclick="excluirProcesso(${item.id})" title="Excluir"><i class="fa-solid fa-trash"></i></button>
+                </td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = html;
+}
+
+function pesquisarProcessos() {
+    const termo = document.getElementById("inputPesquisaProcessos").value;
+    carregarProcessos(termo);
+}
+
+function salvarRegistro() {
+    const editId = document.getElementById("editIndex").value;
+    const pasta = document.getElementById("pasta").value.trim();
+    
+    if(!pasta) {
+        alert("Preencha o campo Pasta!");
+        return;
+    }
+
+    const criancasRows = document.querySelectorAll("#criancasContainer .dynamic-item");
+    let criancasDados = [];
+    criancasRows.forEach(row => {
+        const nome = row.querySelector(".nomeCrianca").value.trim();
+        const nasc = row.querySelector(".nascCrianca").value.trim();
+        if(nome) criancasDados.push({ nome, nasc });
+    });
+
+    const respRows = document.querySelectorAll("#responsaveisContainer .dynamic-item");
+    let responsaveisDados = [];
+    respRows.forEach(row => {
+        const nome = row.querySelector(".nomeResponsavel").value.trim();
+        if(nome) responsaveisDados.push(nome);
+    });
+
+    const cidadeSelect = document.getElementById("cidade").value;
+    const cidadeOutra = document.getElementById("cidadeOutraInput").value.trim();
+    const cidadeFinal = cidadeSelect === "Outra" ? cidadeOutra : cidadeSelect;
+
+    const dados = {
+        pasta: pasta,
+        num_processo: document.getElementById("numProces").value.trim(),
+        tipo_pessoa: document.getElementById("tipoPessoa").value,
+        criancas_dados: JSON.stringify(criancasDados),
+        responsaveis_dados: JSON.stringify(responsaveisDados),
+        endereco: document.getElementById("endereco").value,
+        cidade: cidadeFinal,
+        assunto: document.getElementById("assuntoInput").value,
+        conselheiro: document.getElementById("conselheiro").value,
+        processo_sei: document.getElementById("processoSeiNum").value,
+        observacao: document.getElementById("observacaoProcesso").value,
+        pasta_importada: document.getElementById("pastaImportada").value
+    };
+
+    const acao = editId > 0 ? 'atualizar_processo' : 'salvar_processo';
+    if(editId > 0) dados.id = editId;
+
+    const formData = new URLSearchParams();
+    for (const key in dados) {
+        formData.append(key, dados[key]);
+    }
+    formData.append('acao', acao);
+
+    fetch('index.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(resp => {
+        if(resp.success) {
+            alert(resp.message || "Salvo com sucesso!");
+            cancelarEdicao();
+            carregarProcessos();
+            atualizarDashboardEstatisticas();
+        } else {
+            alert("Erro ao salvar.");
+        }
+    })
+    .catch(err => console.error("Erro:", err));
+}
+
+function editarProcesso(id) {
+    fetch(`index.php?acao=buscar_processo&id=${id}`)
+        .then(res => res.json())
+        .then(item => {
+            if(!item) return;
+            document.getElementById("editIndex").value = item.id;
+            document.getElementById("pasta").value = item.pasta || '';
+            document.getElementById("numProces").value = item.num_processo || '';
+            document.getElementById("tipoPessoa").value = item.tipo_pessoa || 'CRIANÇA';
+            document.getElementById("endereco").value = item.endereco || '';
+            document.getElementById("assuntoInput").value = item.assunto || '';
+            document.getElementById("conselheiro").value = item.conselheiro || '';
+            document.getElementById("processoSeiNum").value = item.processo_sei || '';
+            document.getElementById("observacaoProcesso").value = item.observacao || '';
+            document.getElementById("pastaImportada").value = item.pasta_importada || 0;
+
+            const cidadeSelect = document.getElementById("cidade");
+            let achou = false;
+            for(let opt of cidadeSelect.options) {
+                if(opt.value === item.cidade) {
+                    cidadeSelect.value = item.cidade;
+                    achou = true;
+                    break;
+                }
+            }
+            if(!achou && item.cidade) {
+                cidadeSelect.value = "Outra";
+                document.getElementById("cidadeOutraContainer").style.display = "block";
+                document.getElementById("cidadeOutraInput").value = item.cidade;
+            } else {
+                document.getElementById("cidadeOutraContainer").style.display = "none";
+            }
+
+            const cContainer = document.getElementById("criancasContainer");
+            cContainer.innerHTML = "";
+            try {
+                const arr = JSON.parse(item.criancas_dados || '[]');
+                if(arr.length > 0) {
+                    arr.forEach(c => adicionarCampoCrianca(c.nome, c.nasc));
+                } else {
+                    adicionarCampoCrianca(item.criancas || '');
+                }
+            } catch(e) {
+                adicionarCampoCrianca(item.criancas || '');
+            }
+
+            const rContainer = document.getElementById("responsaveisContainer");
+            rContainer.innerHTML = "";
+            try {
+                const arr = JSON.parse(item.responsaveis_dados || '[]');
+                if(arr.length > 0) {
+                    arr.forEach(r => adicionarCampoValor('responsaveisContainer', 'nomeResponsavel', r));
+                } else {
+                    adicionarCampoValor('responsaveisContainer', 'nomeResponsavel', item.responsavel || '');
+                }
+            } catch(e) {
+                adicionarCampoValor('responsaveisContainer', 'nomeResponsavel', item.responsavel || '');
+            }
+
+            document.getElementById("editIndicator").style.display = "flex";
+            document.getElementById("editPastaDisplay").textContent = item.pasta;
+            document.getElementById("btnSalvarTexto").textContent = "ATUALIZAR";
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+}
+
+function cancelarEdicao() {
+    document.getElementById("editIndex").value = "-1";
+    document.getElementById("processoForm").reset();
+    document.getElementById("editIndicator").style.display = "none";
+    document.getElementById("btnSalvarTexto").textContent = "CADASTRAR";
+    document.getElementById("criancasContainer").innerHTML = "";
+    adicionarCampoCrianca();
+    document.getElementById("responsaveisContainer").innerHTML = `
+        <div class="dynamic-item">
+            <input type="text" class="nomeResponsavel" placeholder="NOME COMPLETO">
+            <button type="button" class="btn-remove" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+    `;
+}
+
+function excluirProcesso(id) {
+    if(!confirm("Deseja realmente excluir este processo?")) return;
+    const formData = new URLSearchParams();
+    formData.append('acao', 'excluir_processo');
+    formData.append('id', id);
+
+    fetch('index.php', { method: 'POST', body: formData })
+        .then(() => {
+            carregarProcessos();
+            atualizarDashboardEstatisticas();
+        });
+}
+
+function adicionarCampoCrianca(nome = '', nasc = '') {
+    const container = document.getElementById("criancasContainer");
+    const div = document.createElement("div");
+    div.className = "dynamic-item";
+    div.innerHTML = `
+        <input type="text" class="nomeCrianca" placeholder="NOME DA CRIANÇA" value="${nome}" style="flex: 2;">
+        <input type="text" class="nascCrianca" placeholder="NASC (DD/MM/AAAA)" value="${nasc}" style="flex: 1;">
+        <button type="button" class="btn-remove" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
+    `;
+    container.appendChild(div);
+    atualizarContadorCriancas();
+}
+
+function adicionarCampo(containerId, classeInput, placeholder) {
+    const container = document.getElementById(containerId);
+    const div = document.createElement("div");
+    div.className = "dynamic-item";
+    div.innerHTML = `
+        <input type="text" class="${classeInput}" placeholder="${placeholder}">
+        <button type="button" class="btn-remove" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
+    `;
+    container.appendChild(div);
+}
+
+function adicionarCampoValor(containerId, classeInput, valor) {
+    const container = document.getElementById(containerId);
+    const div = document.createElement("div");
+    div.className = "dynamic-item";
+    div.innerHTML = `
+        <input type="text" class="${classeInput}" value="${valor}">
+        <button type="button" class="btn-remove" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
+    `;
+    container.appendChild(div);
+}
+
+function atualizarContadorCriancas() {
+    const count = document.querySelectorAll("#criancasContainer .dynamic-item").length;
+    const badge = document.getElementById("childCounter");
+    if(badge) badge.textContent = count;
+}
+
+function gerarPastaAutomaticamente() {
+    const letra = prompt("Digite a letra da pasta (ex: A, B, C):", "A");
+    if(!letra) return;
+    fetch(`index.php?acao=gerar_pasta&letra=${encodeURIComponent(letra.toUpperCase())}`)
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById("pasta").value = data.pasta;
+        });
+}
+
+function toggleCidadeOutra() {
+    const val = document.getElementById("cidade").value;
+    document.getElementById("cidadeOutraContainer").style.display = val === "Outra" ? "block" : "none";
+}
+
+function carregarAtendimentos() {
+    fetch('index.php?acao=listar_atendimentos')
+        .then(res => res.json())
+        .then(data => {
+            renderizarTabelaAtendimentos(data);
+        });
+}
+
+function renderizarTabelaAtendimentos(dados) {
+    const tbody = document.getElementById("tbodyAtendimentos");
+    const contador = document.getElementById("contadorAtendimentos");
+    const dashTotal = document.getElementById("dashTotalAtendimentos");
+    const dashUnicas = document.getElementById("dashPessoasUnicas");
+    
+    if(!tbody) return;
+    contador.textContent = `TOTAL: ${dados.length}`;
+    if(dashTotal) dashTotal.textContent = dados.length;
+
+    const unicas = new Set(dados.map(i => i.nome.trim().toUpperCase())).size;
+    if(dashUnicas) dashUnicas.textContent = unicas;
+
+    if(dados.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-light); padding: 20px;">NENHUM ATENDIMENTO REGISTRADO.</td></tr>`;
+        return;
+    }
+
+    let html = "";
+    dados.forEach(item => {
+        html += `
+            <tr>
+                <td>${item.data_hora || item.data_registro || ''}</td>
+                <td><strong>${item.nome || ''}</strong></td>
+                <td>${item.cidade || ''}</td>
+                <td>${item.assunto || ''}</td>
+                <td>${item.admin || ''}</td>
+                <td>${item.observacao || ''}</td>
+                <td style="text-align: center; white-space: nowrap;">
+                    <button type="button" class="btn-add" style="display:inline-flex; padding: 4px 8px; background: #fef3c7; color: #d97706;" onclick="editarAtendimento(${item.id})" title="Editar"><i class="fa-solid fa-pen"></i></button>
+                    <button type="button" class="btn-remove" style="display:inline-flex; width: 24px; height: 24px; margin-left: 4px;" onclick="excluirAtendimento(${item.id})" title="Excluir"><i class="fa-solid fa-trash"></i></button>
+                </td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = html;
+}
+
+function salvarAtendimento() {
+    const editId = document.getElementById("editAtendimentoIndex").value;
+    const cidadeSelect = document.getElementById("atendCidade").value;
+    const cidadeOutra = document.getElementById("atendCidadeOutraInput").value.trim();
+    const cidadeFinal = cidadeSelect === "Outra" ? cidadeOutra : cidadeSelect;
+
+    const adminSelect = document.getElementById("atendAdmin").value;
+    const adminOutro = document.getElementById("atendAdminOutraInput").value.trim();
+    const adminFinal = adminSelect === "Outro" ? adminOutro : adminSelect;
+
+    const dados = {
+        nome: document.getElementById("atendNome").value,
+        cidade: cidadeFinal,
+        assunto: document.getElementById("atendAssuntoInput").value,
+        admin: adminFinal,
+        observacao: document.getElementById("observacaoAtendimento").value,
+        data_hora: document.getElementById("atendDataHora").value
+    };
+
+    const acao = editId > 0 ? 'atualizar_atendimento' : 'salvar_atendimento';
+    if(editId > 0) dados.id = editId;
+
+    const formData = new URLSearchParams();
+    for(const key in dados) formData.append(key, dados[key]);
+    formData.append('acao', acao);
+
+    fetch('index.php', { method: 'POST', body: formData })
+        .then(res => res.json())
+        .then(resp => {
+            alert(resp.message || "Salvo!");
+            limparFormAtendimento();
+            carregarAtendimentos();
+        });
+}
+
+function editarAtendimento(id) {
+    fetch(`index.php?acao=buscar_atendimento&id=${id}`)
+        .then(res => res.json())
+        .then(item => {
+            if(!item) return;
+            document.getElementById("editAtendimentoIndex").value = item.id;
+            document.getElementById("atendNome").value = item.nome || '';
+            document.getElementById("atendAssuntoInput").value = item.assunto || '';
+            document.getElementById("observacaoAtendimento").value = item.observacao || '';
+            document.getElementById("atendDataHora").value = item.data_hora || '';
+
+            const cSelect = document.getElementById("atendCidade");
+            let achouC = false;
+            for(let opt of cSelect.options) {
+                if(opt.value === item.cidade) {
+                    cSelect.value = item.cidade;
+                    achouC = true;
+                    break;
+                }
+            }
+            if(!achouC && item.cidade) {
+                cSelect.value = "Outra";
+                document.getElementById("atendCidadeOutraContainer").style.display = "block";
+                document.getElementById("atendCidadeOutraInput").value = item.cidade;
+            } else {
+                document.getElementById("atendCidadeOutraContainer").style.display = "none";
+            }
+
+            const aSelect = document.getElementById("atendAdmin");
+            let achouA = false;
+            for(let opt of aSelect.options) {
+                if(opt.value === item.admin) {
+                    aSelect.value = item.admin;
+                    achouA = true;
+                    break;
+                }
+            }
+            if(!achouA && item.admin) {
+                aSelect.value = "Outro";
+                document.getElementById("atendAdminOutraContainer").style.display = "block";
+                document.getElementById("atendAdminOutraInput").value = item.admin;
+            } else {
+                document.getElementById("atendAdminOutraContainer").style.display = "none";
+            }
+
+            document.getElementById("editAtendimentoIndicator").style.display = "flex";
+            document.getElementById("editAtendimentoDisplay").textContent = item.nome;
+            document.getElementById("btnSalvarAtendimentoTexto").textContent = "ATUALIZAR ATENDIMENTO";
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+}
+
+function cancelarEdicaoAtendimento() {
+    document.getElementById("editAtendimentoIndex").value = "-1";
+    document.getElementById("atendimentoForm").reset();
+    document.getElementById("editAtendimentoIndicator").style.display = "none";
+    document.getElementById("btnSalvarAtendimentoTexto").textContent = "SALVAR ATENDIMENTO";
+    document.getElementById("atendDataHora").value = new Date().toLocaleString('pt-BR');
+}
+
+function excluirAtendimento(id) {
+    if(!confirm("Deseja excluir este atendimento?")) return;
+    const formData = new URLSearchParams();
+    formData.append('acao', 'excluir_atendimento');
+    formData.append('id', id);
+
+    fetch('index.php', { method: 'POST', body: formData })
+        .then(() => carregarAtendimentos());
+}
+
+function limparFormAtendimento() {
+    cancelarEdicaoAtendimento();
+}
+
+function toggleAtendCidadeOutra() {
+    const val = document.getElementById("atendCidade").value;
+    document.getElementById("atendCidadeOutraContainer").style.display = val === "Outra" ? "block" : "none";
+}
+
+function toggleAdminOutro() {
+    const val = document.getElementById("atendAdmin").value;
+    document.getElementById("atendAdminOutraContainer").style.display = val === "Outro" ? "block" : "none";
+}
+
+function atualizarDashboardEstatisticas() {
+    const mes = document.getElementById("filtroMes").value;
+    const ano = document.getElementById("filtroAno").value;
+
+    fetch(`index.php?acao=dashboard_assuntos&mes=${mes}&ano=${ano}`)
+        .then(res => res.json())
+        .then(data => {
+            const ul = document.getElementById("listaAssuntosDash");
+            const badge = document.getElementById("totalAssuntosCount");
+            if(!ul) return;
+            
+            let total = 0;
+            let html = "";
+            for(let k in data) {
+                total += parseInt(data[k]);
+                html += `<li><span>${k}</span> <strong>${data[k]}</strong></li>`;
+            }
+            badge.textContent = total;
+            ul.innerHTML = html || '<li style="color: var(--text-light); text-align: center; padding: 10px;">NENHUM DADO.</li>';
+        });
+
+    fetch(`index.php?acao=dashboard_cidades&mes=${mes}&ano=${ano}`)
+        .then(res => res.json())
+        .then(data => {
+            const ul = document.getElementById("listaCidadesDash");
+            const destaque = document.getElementById("regiaoDestaque");
+            if(!ul) return;
+
+            let html = "";
+            let maiorVal = -1;
+            let maiorNome = "---";
+            for(let k in data) {
+                if(data[k] > maiorVal) {
+                    maiorVal = data[k];
+                    maiorNome = k;
+                }
+                html += `<li><span>${k}</span> <strong>${data[k]}</strong></li>`;
+            }
+            destaque.textContent = `DESTAQUE: ${maiorNome} (${maiorVal >= 0 ? maiorVal : 0})`;
+            ul.innerHTML = html || '<li style="color: var(--text-light); text-align: center; padding: 10px;">NENHUM DADO.</li>';
+        });
+}
+
+function toggleDashboard() {
+    const container = document.getElementById("dashboardContainerWrap");
+    const icon = document.getElementById("iconToggleDash");
+    const text = document.getElementById("textToggleDash");
+    if(container.style.display === "none") {
+        container.style.display = "block";
+        icon.className = "fa-solid fa-eye-slash";
+        text.textContent = "ESCONDER DASHBOARD";
+    } else {
+        container.style.display = "none";
+        icon.className = "fa-solid fa-eye";
+        text.textContent = "MOSTRAR DASHBOARD";
+    }
+}
+
+function toggleUpload() {
+    const section = document.getElementById("uploadSectionWrapper");
+    const icon = document.getElementById("iconToggleUpload");
+    const text = document.getElementById("textToggleUpload");
+    if(section.style.display === "none") {
+        section.style.display = "block";
+        icon.className = "fa-solid fa-upload";
+        text.textContent = "ESCONDER IMPORTAÇÃO";
+    } else {
+        section.style.display = "none";
+        icon.className = "fa-solid fa-eye";
+        text.textContent = "MOSTRAR IMPORTAÇÃO";
+    }
+}
+
+function configurarAutocompleteAssuntos() {
+    const input = document.getElementById("assuntoInput");
+    const listDiv = document.getElementById("assuntoAutocompleteList");
+    if(!input || !listDiv) return;
+
+    input.addEventListener("input", function() {
+        const val = this.value.trim().toUpperCase();
+        listDiv.innerHTML = "";
+        if(!val) {
+            listDiv.style.display = "none";
+            return;
+        }
+        const matches = listaAssuntosPermitidos.filter(item => item.toUpperCase().includes(val));
+        if(matches.length === 0) {
+            listDiv.style.display = "none";
+            return;
+        }
+        matches.forEach(m => {
+            const div = document.createElement("div");
+            div.innerHTML = m;
+            div.addEventListener("click", function() {
+                input.value = m;
+                listDiv.style.display = "none";
+            });
+            listDiv.appendChild(div);
+        });
+        listDiv.style.display = "block";
+    });
+
+    document.addEventListener("click", function(e) {
+        if(e.target !== input) listDiv.style.display = "none";
+    });
+}
+
+function configurarAutocompleteAtendAssuntos() {
+    const input = document.getElementById("atendAssuntoInput");
+    const listDiv = document.getElementById("atendAssuntoAutocompleteList");
+    if(!input || !listDiv) return;
+
+    input.addEventListener("input", function() {
+        const val = this.value.trim().toUpperCase();
+        listDiv.innerHTML = "";
+        if(!val) {
+            listDiv.style.display = "none";
+            return;
+        }
+        const matches = listaAssuntosPermitidos.filter(item => item.toUpperCase().includes(val));
+        if(matches.length === 0) {
+            listDiv.style.display = "none";
+            return;
+        }
+        matches.forEach(m => {
+            const div = document.createElement("div");
+            div.innerHTML = m;
+            div.addEventListener("click", function() {
+                input.value = m;
+                listDiv.style.display = "none";
+            });
+            listDiv.appendChild(div);
+        });
+        listDiv.style.display = "block";
+    });
+
+    document.addEventListener("click", function(e) {
+        if(e.target !== input) listDiv.style.display = "none";
+    });
+}
+
+function processarPlanilha(e) {
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, {type: 'array'});
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+        
+        let processados = [];
+        for(let i = 1; i < json.length; i++) {
+            let row = json[i];
+            if(row && row.length > 0 && (row[0] || row[2])) {
+                processados.push({
+                    pasta: row[0] || '',
+                    num_processo: row[1] || '',
+                    criancas: row[2] || '',
+                    nasc: row[3] || '',
+                    responsavel: row[4] || '',
+                    endereco: row[5] || '',
+                    cidade: row[6] || 'Paranoá',
+                    assunto: row[7] || '',
+                    conselheiro: row[8] || '',
+                    processo_sei: row[9] || ''
+                });
+            }
+        }
+        
+        if(processados.length > 0) {
+            enviarLoteImportacao(processados);
+        } else {
+            alert("Nenhum dado válido encontrado na planilha.");
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function clicarColar() {
+    const texto = document.getElementById("pasteInput").value.trim();
+    if(!texto) {
+        alert("Cole os dados na caixa de texto!");
+        return;
+    }
+    const linhas = texto.split("\n");
+    let processados = [];
+    linhas.forEach(linha => {
+        const cols = linha.split("\t");
+        if(cols.length >= 2) {
+            processados.push({
+                pasta: cols[0] ? cols[0].trim() : '',
+                num_processo: cols[1] ? cols[1].trim() : '',
+                criancas: cols[2] ? cols[2].trim() : '',
+                nasc: cols[3] ? cols[3].trim() : '',
+                responsavel: cols[4] ? cols[4].trim() : '',
+                endereco: cols[5] ? cols[5].trim() : '',
+                cidade: cols[6] ? cols[6].trim() : 'Paranoá',
+                assunto: cols[7] ? cols[7].trim() : '',
+                conselheiro: cols[8] ? cols[8].trim() : '',
+                processo_sei: cols[9] ? cols[9].trim() : ''
+            });
+        }
+    });
+
+    if(processados.length > 0) {
+        enviarLoteImportacao(processados);
+    } else {
+        alert("Formato inválido ou vazio.");
+    }
+}
+
+function enviarLoteImportacao(dados) {
+    const formData = new URLSearchParams();
+    formData.append('acao', 'importar_processos_lote');
+    formData.append('dados', JSON.stringify(dados));
+
+    fetch('index.php', { method: 'POST', body: formData })
+        .then(res => res.json())
+        .then(resp => {
+            alert(`Importação concluída! Sucessos: ${resp.sucessos}`);
+            carregarProcessos();
+            atualizarDashboardEstatisticas();
+            document.getElementById("pasteInput").value = "";
+        });
+}
+
+function tentarLimparFormulario() {
+    cancelarEdicao();
+}
+
+function apagarTudo() {
+    if(!confirm("ATENÇÃO: Deseja realmente apagar TODOS os registros do banco de dados?")) return;
+    
+    const formData = new URLSearchParams();
+    formData.append('acao', 'apagar_tudo');
+
+    fetch('index.php', { method: 'POST', body: formData })
+        .then(res => res.json())
+        .then(resp => {
+            alert(resp.message);
+            carregarProcessos();
+            carregarAtendimentos();
+            atualizarDashboardEstatisticas();
+        });
+}
+
+function abrirHistorico(id, pasta) {
+    document.getElementById("modalHistorico").style.display = "flex";
+    document.getElementById("modalTituloPasta").innerHTML = `<i class="fa-solid fa-clock-rotate-left"></i> HISTÓRICO - PASTA: ${pasta}`;
+    document.getElementById("historicoIndexAtual").value = id;
+    carregarHistoricoServicos(id);
+}
+
+function fecharModalHistorico() {
+    document.getElementById("modalHistorico").style.display = "none";
+}
+
+function carregarHistoricoServicos(processoId) {
+    fetch(`index.php?acao=listar_historico&processo_id=${processoId}`)
+        .then(res => res.json())
+        .then(data => {
+            const tbody = document.querySelector("#tabelaHistoricoServicos tbody");
+            if(!tbody) return;
+            if(data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-light); padding: 12px; font-size: 13px;">NENHUM SERVIÇO.</td></tr>`;
+                return;
+            }
+            let html = "";
+            data.forEach(item => {
+                html += `
+                    <tr>
+                        <td>${item.data_servico || ''}</td>
+                        <td>${item.conselheiro || ''}</td>
+                        <td>${item.descricao || ''}</td>
+                        <td style="text-align: center;"><button type="button" class="btn-remove" style="width:22px; height:22px; display:inline-flex;" onclick="excluirHistoricoServico(${item.id}, ${processoId})"><i class="fa-solid fa-xmark"></i></button></td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        });
+}
+
+function adicionarNovoServicoNaPasta() {
+    const processoId = document.getElementById("historicoIndexAtual").value;
+    const data = document.getElementById("novoServicoData").value;
+    const conselheiro = document.getElementById("novoServicoConselheiro").value;
+    const descricao = document.getElementById("novoServicoDescricao").value;
+
+    if(!data || !descricao) {
+        alert("Preencha a data e a descrição do serviço!");
+        return;
+    }
+
+    const formData = new URLSearchParams();
+    formData.append('acao', 'salvar_historico');
+    formData.append('processo_id', processoId);
+    formData.append('data_servico', data);
+    formData.append('conselheiro', conselheiro);
+    formData.append('descricao', descricao);
+
+    fetch('index.php', { method: 'POST', body: formData })
+        .then(() => {
+            document.getElementById("novoServicoData").value = "";
+            document.getElementById("novoServicoConselheiro").value = "";
+            document.getElementById("novoServicoDescricao").value = "";
+            carregarHistoricoServicos(processoId);
+        });
+}
+
+function excluirHistoricoServico(id, processoId) {
+    if(!confirm("Excluir este serviço?")) return;
+    const formData = new URLSearchParams();
+    formData.append('acao', 'excluir_historico');
+    formData.append('id', id);
+
+    fetch('index.php', { method: 'POST', body: formData })
+        .then(() => carregarHistoricoServicos(processoId));
+}
